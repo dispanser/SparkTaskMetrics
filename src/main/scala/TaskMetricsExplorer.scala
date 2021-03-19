@@ -3,7 +3,7 @@ package com.databricks
 import scala.collection.mutable
 import org.slf4j.LoggerFactory
 import org.apache.spark._
-import org.apache.spark.executor.TaskMetrics
+import org.apache.spark.executor.{ExecutorMetrics, TaskMetrics}
 import org.apache.spark.scheduler._
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
@@ -60,12 +60,22 @@ class TaskMetricsExplorer(sparkSession: SparkSession) {
     createDF(listenerTask.taskInfoMetrics)
   }
 
-  def createDF(taskEnd: mutable.Buffer[(Int, Int, String, TaskInfo, TaskMetrics, TaskEndReason)]): DataFrame = {
+  def runAndTrack[T](f: => T): T = {
+    listenerTask.tracking = true
+    val result = f
+    listenerTask.tracking = false
+    result
+  }
+
+  def metrics(): DataFrame = createDF(listenerTask.taskInfoMetrics)
+
+  def createDF(taskEnd: mutable.Buffer[TaskInfoRecorderListener.RecordedMetrics]): DataFrame = {
     import sparkSession.implicits._
 
     lazy val logger = LoggerFactory.getLogger(this.getClass.getName)
 
-    val row = taskEnd.map { case (stageId, stageAttemptId, taskType, taskInfo, taskMetrics, taskEndReason) =>
+    val row = taskEnd.map { case (stageId, stageAttemptId, taskType, taskInfo,
+    taskMetrics, executorMetrics, taskEndReason) =>
       val errorMessage = taskEndReason match {
         case Success =>
           Some("Success")
